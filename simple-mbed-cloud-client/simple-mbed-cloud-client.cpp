@@ -57,6 +57,18 @@ SimpleMbedCloudClient::SimpleMbedCloudClient(NetworkInterface *net, BlockDevice 
 {
 }
 
+SimpleMbedCloudClient::SimpleMbedCloudClient(NetworkInterface *net) :
+    _registered(false),
+    _register_called(false),
+    _register_and_connect_called(false),
+    _registered_cb(NULL),
+    _unregistered_cb(NULL),
+    _error_cb(NULL),
+    _net(net),
+	_storage(NULL,NULL)
+{
+}
+
 SimpleMbedCloudClient::~SimpleMbedCloudClient() {
     for (int i = 0; i < _resources.size(); i++) {
         delete _resources[i];
@@ -100,11 +112,13 @@ int SimpleMbedCloudClient::init(bool format) {
         return 1;
     }
 
+#ifndef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
     status = _storage.init();
     if (status != FCC_STATUS_SUCCESS) {
         tr_error("Failed to initialize storage layer (%d)", status);
         return 1;
     }
+#endif //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
 
     status = _storage.sotp_init();
     if (status != FCC_STATUS_SUCCESS) {
@@ -113,19 +127,25 @@ int SimpleMbedCloudClient::init(bool format) {
         return 1;
     }
 
+
 #if RESET_STORAGE
+
     status = reset_storage();
     if (status != FCC_STATUS_SUCCESS) {
         tr_error("reset_storage (triggered by RESET_STORAGE macro) failed (%d)", status);
         return 1;
     }
+#ifndef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT		
+
     // Reinitialize SOTP
     status = _storage.sotp_init();
     if (status != FCC_STATUS_SUCCESS) {
         tr_error("Could not initialize SOTP (%d)", status);
         return 1;
     }
-#endif
+#endif //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
+
+#endif //RESET_STORAGE
 
     status = verify_cloud_configuration(format);
 
@@ -133,7 +153,9 @@ int SimpleMbedCloudClient::init(bool format) {
     // This is designed to simplify user-experience by auto-formatting the
     // primary storage if no valid certificates exist.
     // This should never be used for any kind of production devices.
+
 #if MBED_CONF_APP_FORMAT_STORAGE_LAYER_ON_ERROR == 1
+
         tr_info("Could not load certificate (e.g. no certificates or RoT might have changed), resetting storage...");
         status = reset_storage();
         if (status != FCC_STATUS_SUCCESS) {
@@ -151,6 +173,7 @@ int SimpleMbedCloudClient::init(bool format) {
         return 1;
 #endif
     }
+
 
     // Deletes existing firmware images from storage.
     // This deletes any existing firmware images during application startup.
@@ -403,8 +426,10 @@ int SimpleMbedCloudClient::reset_storage() {
     tr_info("Resetting storage to an empty state...");
     int status = fcc_storage_delete();
     if (status != FCC_STATUS_SUCCESS) {
-        tr_debug("Failed to delete FCC storage (%d), formatting...", status);
+        tr_debug("Failed to delete FCC storage (%d)", status);
 
+#ifndef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
+        tr_debug(" formatting...", status);
         status = _storage.reformat_storage();
         if (status == 0) {
             tr_debug("Storage reformatted, resetting storage again...");
@@ -418,6 +443,7 @@ int SimpleMbedCloudClient::reset_storage() {
                 tr_debug("Deleted FCC storage");
             }
         }
+#endif		
     }
 
     if (status == FCC_STATUS_SUCCESS) {
