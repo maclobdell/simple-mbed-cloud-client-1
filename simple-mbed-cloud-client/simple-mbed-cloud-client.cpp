@@ -118,7 +118,6 @@ int SimpleMbedCloudClient::init(bool format) {
         tr_error("Failed to initialize storage layer (%d)", status);
         return 1;
     }
-#endif //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
 
     status = _storage.sotp_init();
     if (status != FCC_STATUS_SUCCESS) {
@@ -126,7 +125,36 @@ int SimpleMbedCloudClient::init(bool format) {
         fcc_finalize();
         return 1;
     }
+#else  //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
+// Include this only for Developer mode and a device which doesn't have in-built TRNG support.
+#if MBED_CONF_DEVICE_MANAGEMENT_DEVELOPER_MODE == 1
+#ifdef PAL_USER_DEFINED_CONFIGURATION
+#if !PAL_USE_HW_TRNG
+    status = fcc_entropy_set(MBED_CLOUD_DEV_ENTROPY, FCC_ENTROPY_SIZE);
 
+    if (status != FCC_STATUS_SUCCESS && status != FCC_STATUS_ENTROPY_ERROR) {
+        tr_error("fcc_entropy_set failed with status %d", status);
+        fcc_finalize();
+        return 1;
+    }
+#endif // PAL_USE_HW_TRNG = 0
+/* Include this only for Developer mode. The application will use fixed RoT to simplify user-experience with the application.
+* With this change the application be reflashed/SOTP can be erased safely without invalidating the application credentials.
+*/
+    status = fcc_rot_set(MBED_CLOUD_DEV_ROT, FCC_ROT_SIZE);
+
+    if (status != FCC_STATUS_SUCCESS && status != FCC_STATUS_ROT_ERROR) {
+        tr_error("fcc_rot_set failed with status %d", status);
+        fcc_finalize();
+    } else {
+        // We can return SUCCESS here as preexisting RoT/Entropy is expected flow.
+        tr_info("Using hardcoded Root of Trust, not suitable for production use");
+        status = FCC_STATUS_SUCCESS;
+    }
+#endif // PAL_USER_DEFINED_CONFIGURATION
+#endif // #if MBED_CONF_DEVICE_MANAGEMENT_DEVELOPER_MODE == 1
+
+#endif //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
 
 #if RESET_STORAGE
 
@@ -161,17 +189,20 @@ int SimpleMbedCloudClient::init(bool format) {
         if (status != FCC_STATUS_SUCCESS) {
             return status;
         }
+#ifndef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT		
         status = _storage.sotp_init();
         if (status != FCC_STATUS_SUCCESS) {
             return status;
         }
+#endif //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
+
         status = verify_cloud_configuration(format);
         if (status != 0) {
             return status;
         }
-#else
+#else  //MBED_CONF_APP_FORMAT_STORAGE_LAYER_ON_ERROR == 1
         return 1;
-#endif
+#endif //MBED_CONF_APP_FORMAT_STORAGE_LAYER_ON_ERROR == 1
     }
 
 
@@ -443,7 +474,7 @@ int SimpleMbedCloudClient::reset_storage() {
                 tr_debug("Deleted FCC storage");
             }
         }
-#endif		
+#endif  //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
     }
 
     if (status == FCC_STATUS_SUCCESS) {
