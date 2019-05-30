@@ -103,7 +103,7 @@ void spdmc_testsuite_connect(void) {
         greentea_send_kv(GREENTEA_TEST_ENV_TESTCASE_COUNT, 10);
         greentea_send_kv(GREENTEA_TEST_ENV_TESTCASE_NAME, "Connect to " TEST_NETWORK_TYPE);
         greentea_send_kv(GREENTEA_TEST_ENV_TESTCASE_NAME, "Initialize " TEST_BLOCK_DEVICE_TYPE "+" TEST_FILESYSTEM_TYPE);
-        greentea_send_kv(GREENTEA_TEST_ENV_TESTCASE_NAME, "Format Storage");
+        greentea_send_kv(GREENTEA_TEST_ENV_TESTCASE_NAME, "Format " TEST_FILESYSTEM_TYPE);
         greentea_send_kv(GREENTEA_TEST_ENV_TESTCASE_NAME, "Initialize Simple PDMC");
         greentea_send_kv(GREENTEA_TEST_ENV_TESTCASE_NAME, "Pelion Bootstrap & Reg.");
         greentea_send_kv(GREENTEA_TEST_ENV_TESTCASE_NAME, "Pelion Directory");
@@ -141,23 +141,20 @@ void spdmc_testsuite_connect(void) {
 
     test_case_finish("Connect to " TEST_NETWORK_TYPE, iteration + (net_status == 0), (net_status != 0));
 
-
-#ifdef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
-    test_case_start("Initialize EXTERNAL SST", 2);
-    logger("[INFO] Attempting to initialize KVSTORE.\r\n");
-	
-    // This wait will allow the board more time to initialize
-    wait_ms(2000);
-    int status = kv_init_storage_config();
-    if (status != MBED_SUCCESS) {
-        logger("[ERROR] kv_init_storage_config() - failed \n");
-    }
-    test_case_finish("Initialize EXTERNAL SST",status == MBED_SUCCESS , status != MBED_SUCCESS);	
-	
-#else
     test_case_start("Initialize " TEST_BLOCK_DEVICE_TYPE "+" TEST_FILESYSTEM_TYPE, 2);
     logger("[INFO] Attempting to initialize storage.\r\n");
-	
+
+  #ifdef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
+        logger("[INFO] Attempting to initialize KVSTORE.\r\n");
+    	
+        // This wait will allow the board more time to initialize
+        wait_ms(2000);
+        int status = kv_init_storage_config();
+        if (status != MBED_SUCCESS) {
+            logger("[ERROR] kv_init_storage_config() - failed \n");
+        }
+    	
+  #else	//MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
     // Default storage definition.
     BlockDevice* bd = BlockDevice::get_default_instance();
     SlicingBlockDevice sd(bd, 0, MBED_CONF_APP_TESTS_FS_SIZE);
@@ -168,19 +165,21 @@ void spdmc_testsuite_connect(void) {
 	    LittleFileSystem fs("fs", &sd);
     #endif
 
-    test_case_finish("Initialize " TEST_BLOCK_DEVICE_TYPE "+" TEST_FILESYSTEM_TYPE, iteration + 1, 0);
-#endif
+  #endif  //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
 
-#ifdef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT	
-        test_case_start("Format Storage", 3);
-        logger("[INFO] Test for formatting KVStore NOT IMPLEMENTED \n");
-        test_case_finish("Format Storage", 1, 0);
-#else	
+    test_case_finish("Initialize " TEST_BLOCK_DEVICE_TYPE "+" TEST_FILESYSTEM_TYPE, iteration + 1, 0);
+
+
     if (iteration == 0) {
         test_case_start("Format " TEST_FILESYSTEM_TYPE, 3);
+
+      #ifdef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT	
+        logger("[INFO] Test for formatting KVStore NOT IMPLEMENTED \n");
+        int storage_status = 0;
+      #else	//MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT	
         logger("[INFO] Resetting storage to a clean state for test.\n");
 
-        int storage_status = fs.reformat(&sd);
+        storage_status = fs.reformat(&sd);
         if (storage_status != 0) {
             storage_status = sd.erase(0, sd.size());
             if (storage_status == 0) {
@@ -190,7 +189,8 @@ void spdmc_testsuite_connect(void) {
                 }
             }
         }
-
+      #endif  //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT	
+      
         // Report status to console.
         if (storage_status == 0) {
             logger("[INFO] Storage format successful.\r\n");
@@ -201,16 +201,15 @@ void spdmc_testsuite_connect(void) {
 
         test_case_finish("Format " TEST_FILESYSTEM_TYPE, (storage_status == 0), (storage_status != 0));
     }
-#endif
-
+    
     // SimpleMbedCloudClient initialization must be successful.
     test_case_start("Initialize Simple PDMC", 4);
 
-#ifdef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT	
+  #ifdef MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT	
     SimpleMbedCloudClient client(net);
-#else
+  #else  //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
     SimpleMbedCloudClient client(net, &sd, &fs);
-#endif
+  #endif  //MBED_CONF_MBED_CLOUD_CLIENT_EXTERNAL_SST_SUPPORT
     int client_status = client.init();
 
     // Report status to console.
@@ -249,10 +248,8 @@ void spdmc_testsuite_connect(void) {
     }
     // Set client callback to report endpoint name.
     client.on_registered(&registered);
-	logger("[INFO] Past client.on_registered.\r\n");
 	
     client.register_and_connect();
-	logger("[INFO] Past client.register_and_connect.\r\n");
 
     i = 1200; // wait 120 seconds
     while (i-- > 0 && !client.is_client_registered()) {
@@ -325,8 +322,8 @@ void spdmc_testsuite_connect(void) {
         test_case_start("Post-reset Identity", 8);
         int identity_status;
 
-        logger("[INFO] Wait up to 5 seconds for Device Directory to update after reboot.\r\n");
-        i = 50;
+        logger("[INFO] Wait up to 10 seconds for Device Directory to update after reboot.\r\n");
+        i = 100;
         while (i-- > 0 and !endpointInfo) {
             wait(100);
         }
